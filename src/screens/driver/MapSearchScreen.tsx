@@ -1,40 +1,61 @@
-import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
+import BottomSheet, { BottomSheetScrollView, BottomSheetView } from '@gorhom/bottom-sheet';
+import { Camera, Marker, Map, UserLocation } from '@maplibre/maplibre-react-native';
 import { useNavigation } from '@react-navigation/native';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { UrlTile } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import { SpotCard } from '../../components/map/SpotCard';
 import { useTheme } from '../../hooks/useTheme';
 import { useAppStore } from '../../store';
+import { requestLocationPermission } from '../../services/locationPermission';
 import { DarkTheme, Fonts, Shadows, Spacing } from '../../theme';
 import { ParkingSpot } from '../../types';
-
-const INITIAL_REGION = {
-  lat: 23.8103,
-  lng: 90.4125,
-};
 
 export const MapSearchScreen = () => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const { spots, filterOptions } = useAppStore();
+  const { spots, filterOptions, locationPermissionGranted, userLocation } = useAppStore();
 
-  const mapRef = useRef(null);
+  const mapRef = useRef<any>(null);
+  const cameraRef = useRef<any>(null);
   const bottomSheetRef = useRef<BottomSheet>(null);
 
   const [selectedSpot, setSelectedSpot] = useState<ParkingSpot | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [trackUserLocation, setTrackUserLocation] = useState<'default' | undefined>(undefined);
+
+  useEffect(() => {
+    requestLocationPermission();
+  }, []);
+
+  useEffect(() => {
+    if (locationPermissionGranted) {
+      setTrackUserLocation('default');
+    } else {
+      setTrackUserLocation(undefined);
+    }
+  }, [locationPermissionGranted]);
+
+  useEffect(() => {
+    if (locationPermissionGranted && userLocation && trackUserLocation === 'default') {
+      cameraRef.current?.flyTo({
+        center: [userLocation.longitude, userLocation.latitude],
+        duration: 500,
+        zoom: 16,
+      });
+    }
+  }, [locationPermissionGranted, userLocation, trackUserLocation]);
 
   // Filter logic
   const filteredSpots = useMemo(() => {
@@ -82,80 +103,92 @@ export const MapSearchScreen = () => {
   }, [spots, searchQuery, filterOptions]);
 
   // Bottom sheet snap points
-  const snapPoints = useMemo(() => ['18%', '40%'], []);
+  const snapPoints = useMemo(() => ['35%', '90%'], []);
 
   const handleSpotSelect = useCallback((spot: ParkingSpot) => {
     setSelectedSpot(spot);
-    (mapRef.current as any)?.animateToRegion?.(
-      {
-        latitude: spot.latitude - 0.005,
-        longitude: spot.longitude,
-        latitudeDelta: 0.02,
-        longitudeDelta: 0.02,
-      },
-      500,
-    );
+    setTrackUserLocation(undefined);
+    cameraRef.current?.flyTo({
+      center: [spot.longitude, spot.latitude],
+      duration: 500,
+      zoom: 16,
+    });
     bottomSheetRef.current?.snapToIndex(1);
   }, []);
 
   const handleMapPress = useCallback(() => {
     setSelectedSpot(null);
-    bottomSheetRef.current?.close();
-  }, []);
+    if (locationPermissionGranted) {
+      setTrackUserLocation('default');
+    }
+    bottomSheetRef.current?.snapToIndex(1);
+  }, [locationPermissionGranted]);
+
+  const focusUserLocation = useCallback(async () => {
+    if (!locationPermissionGranted) {
+      const granted = await requestLocationPermission();
+      if (!granted) {
+        return;
+      }
+    }
+
+    const { userLocation: latestLocation, locationPermissionGranted: latestGranted } = useAppStore.getState();
+    if (!latestGranted || !latestLocation) {
+      return;
+    }
+
+    setSelectedSpot(null);
+    setTrackUserLocation('default');
+    cameraRef.current?.jumpTo({
+      center: [latestLocation.longitude, latestLocation.latitude],
+    });
+    bottomSheetRef.current?.snapToIndex(1);
+  }, [locationPermissionGranted]);
 
   return (
     <View style={styles.container}>
-      <MapView
-        initialRegion={{
-          latitude: 37.78825,
-          longitude: -122.4324,
-          latitudeDelta: 0.0922,
-          longitudeDelta: 0.0421,
-        }}
-      >
-        <UrlTile
-          urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-          maximumZ={19}
-          flipY={false}
-        />
-      </MapView>
-      {/* <LeafletView
-        mapCenterPosition={INITIAL_REGION}
-        mapMarkers={[
-          {
-            position: INITIAL_REGION,
-            icon: '📍',
-            size: [32, 32],
-          },
-        ]}
-      /> */}
-      {/* <MapContainer
-        ref={mapRef}
-        style={styles.map}
-        initialRegion={INITIAL_REGION}
+      <Map
+        style={StyleSheet.absoluteFill}
+        mapStyle="https://dvqzqqsuwfrmcuahsvao.supabase.co/storage/v1/object/public/map-tiles/map-stype.json"
         onPress={handleMapPress}
-        showsUserLocation
-        showsMyLocationButton={false}
+        ref={mapRef}
       >
-        <TileLayer
-          urlTemplate={OSM_URL}
-          attribution="&copy; OpenStreetMap contributors"
-          zIndex={-1}
+        <Camera
+          ref={cameraRef}
+          zoom={16}
+          initialViewState={{
+            center: [userLocation?.longitude ?? 90.4125, userLocation?.latitude ?? 23.8103],
+            zoom: 12,
+          }}
+          trackUserLocation={trackUserLocation}
         />
+        {locationPermissionGranted && <UserLocation animated heading />}
 
         {filteredSpots.map(spot => (
           <Marker
             key={spot.id}
-            coordinate={{ latitude: spot.latitude, longitude: spot.longitude }}
+            id={spot.id}
+            lngLat={[spot.longitude, spot.latitude]}
+            onPress={() => handleSpotSelect(spot)}
           >
-            <PriceMarker
-              spot={spot}
-              isSelected={selectedSpot?.id === spot.id}
-              onPress={() => handleSpotSelect(spot)}
-            />
+            <View style={[
+              styles.markerContainer,
+              selectedSpot?.id === spot.id && styles.markerSelected,
+            ]}>
+              <Text style={[
+                styles.markerText,
+                selectedSpot?.id === spot.id && styles.markerTextSelected,
+              ]}>
+                ৳{spot.pricePerHour}
+              </Text>
+              <View style={[
+                styles.markerTriangle,
+                selectedSpot?.id === spot.id && styles.markerTriangleSelected,
+              ]} />
+            </View>
           </Marker>
         ))}
-      </MapContainer> */}
+      </Map>
 
       {/* Top UI Overlay */}
       <View
@@ -204,9 +237,7 @@ export const MapSearchScreen = () => {
 
         <TouchableOpacity
           style={[styles.floatingButton, styles.primaryFloatingButton]}
-          onPress={() => {
-            (mapRef.current as any)?.animateToRegion?.(INITIAL_REGION, 500);
-          }}
+          onPress={focusUserLocation}
         >
           <Icon name="crosshairs-gps" size={24} color={theme.white} />
         </TouchableOpacity>
@@ -215,21 +246,37 @@ export const MapSearchScreen = () => {
       {/* Bottom Sheet */}
       <BottomSheet
         ref={bottomSheetRef}
-        index={0}
+        index={1}
         snapPoints={snapPoints}
         enablePanDownToClose={false}
         backgroundStyle={styles.bottomSheetBackground}
         handleIndicatorStyle={styles.bottomSheetIndicator}
+        style={styles.bottomSheet}
       >
         <BottomSheetView style={styles.bottomSheetContent}>
           {selectedSpot ? (
-            <SpotCard
-              spot={selectedSpot}
-              onPress={() => {
-                navigation.navigate('SpotDetail', { spotId: selectedSpot.id });
-              }}
-              style={styles.spotCard}
-            />
+            <View style={styles.selectedSpotHeader}>
+              <TouchableOpacity
+                style={styles.backToListButton}
+                onPress={() => {
+                  setSelectedSpot(null);
+                  if (locationPermissionGranted) {
+                    setTrackUserLocation('default');
+                  }
+                  bottomSheetRef.current?.snapToIndex(1);
+                }}
+              >
+                <Icon name="arrow-left" size={18} color={theme.textPrimary} />
+                <Text style={styles.backToListText}>Back to list</Text>
+              </TouchableOpacity>
+              <SpotCard
+                spot={selectedSpot}
+                onPress={() => {
+                  navigation.navigate('SpotDetail', { spotId: selectedSpot.id });
+                }}
+                style={styles.spotCard}
+              />
+            </View>
           ) : (
             <View style={styles.emptySheet}>
               <View style={styles.sheetHeader}>
@@ -252,6 +299,20 @@ export const MapSearchScreen = () => {
                   <Text style={styles.quickFilterText}>Secure</Text>
                 </TouchableOpacity>
               </View>
+              <BottomSheetScrollView
+                style={styles.spotList}
+                contentContainerStyle={styles.spotListContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {filteredSpots.map(spot => (
+                  <SpotCard
+                    key={spot.id}
+                    spot={spot}
+                    onPress={() => handleSpotSelect(spot)}
+                    style={styles.spotListItem}
+                  />
+                ))}
+              </BottomSheetScrollView>
             </View>
           )}
         </BottomSheetView>
@@ -313,6 +374,46 @@ const createStyles = (theme: typeof DarkTheme) =>
       alignItems: 'center',
       marginRight: 4,
     },
+    markerContainer: {
+      backgroundColor: theme.surface,
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: Spacing.xs,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme.border,
+      ...Shadows.sm,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    markerSelected: {
+      backgroundColor: theme.primary,
+      borderColor: theme.primaryDark,
+      transform: [{ scale: 1.05 }],
+    },
+    markerText: {
+      color: theme.textPrimary,
+      fontSize: Fonts.sizes.xs,
+      fontWeight: '700',
+    },
+    markerTextSelected: {
+      color: theme.white,
+    },
+    markerTriangle: {
+      marginTop: 4,
+      width: 0,
+      height: 0,
+      backgroundColor: 'transparent',
+      borderStyle: 'solid',
+      borderLeftWidth: 6,
+      borderRightWidth: 6,
+      borderTopWidth: 6,
+      borderLeftColor: 'transparent',
+      borderRightColor: 'transparent',
+      borderTopColor: theme.surface,
+    },
+    markerTriangleSelected: {
+      borderTopColor: theme.primary,
+    },
     floatingButtonsContainer: {
       position: 'absolute',
       right: Spacing.xl,
@@ -346,7 +447,11 @@ const createStyles = (theme: typeof DarkTheme) =>
       width: 50,
       height: 5,
     },
+    bottomSheet: {
+      flex: 1,
+    },
     bottomSheetContent: {
+      flex: 1,
       padding: Spacing.xl,
     },
     spotCard: {
@@ -354,7 +459,34 @@ const createStyles = (theme: typeof DarkTheme) =>
       borderWidth: 0,
       backgroundColor: theme.surface,
     },
+    spotList: {
+      marginTop: Spacing.lg,
+      flex: 1,
+    },
+    spotListContent: {
+      paddingBottom: Spacing.xl,
+      flexGrow: 1,
+    },
+    spotListItem: {
+      marginBottom: Spacing.lg,
+    },
+    selectedSpotHeader: {
+      gap: Spacing.sm,
+      flex: 1,
+    },
+    backToListButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      paddingVertical: Spacing.sm,
+    },
+    backToListText: {
+      color: theme.textPrimary,
+      fontSize: Fonts.sizes.sm,
+      fontWeight: '600',
+    },
     emptySheet: {
+      flex: 1,
       gap: Spacing.xl,
     },
     sheetHeader: {

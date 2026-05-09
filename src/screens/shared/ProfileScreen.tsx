@@ -249,8 +249,6 @@ const createStyles = (theme: typeof DarkTheme) => StyleSheet.create({
   },
   avatar: {
     marginRight: Spacing.md,
-    borderWidth: 3,
-    borderColor: theme.primary + '30',
   },
   profileInfo: {
     flex: 1,

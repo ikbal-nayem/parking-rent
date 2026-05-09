@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { create } from 'zustand';
 import { User, Booking, ParkingSpot, Vehicle, PaymentMethod, FilterOptions, Notification, ChatThread, ChatMessage } from '../types';
 import { DUMMY_USERS, DUMMY_BOOKINGS, DUMMY_SPOTS, DUMMY_NOTIFICATIONS, DUMMY_THREADS, DUMMY_MESSAGES } from '../data/dummyData';
@@ -12,6 +13,9 @@ interface AppState {
   messages: ChatMessage[];
   theme: 'dark' | 'light';
   filterOptions: FilterOptions;
+  locationPermissionGranted: boolean;
+  locationPermissionStatus: string;
+  userLocation: { latitude: number; longitude: number } | null;
   
   // Actions
   login: (email: string) => void;
@@ -28,6 +32,8 @@ interface AppState {
   removePaymentMethod: (methodId: string) => void;
   updateFilters: (filters: Partial<FilterOptions>) => void;
   resetFilters: () => void;
+  setLocationPermission: (granted: boolean, status?: string) => void;
+  setUserLocation: (location: { latitude: number; longitude: number } | null) => void;
   markNotificationAsRead: (id: string) => void;
   addMessage: (message: ChatMessage) => void;
 }
@@ -52,6 +58,9 @@ export const useAppStore = create<AppState>((set) => ({
   messages: DUMMY_MESSAGES,
   theme: 'dark',
   filterOptions: DEFAULT_FILTERS,
+  locationPermissionGranted: Platform.OS === 'ios',
+  locationPermissionStatus: '',
+  userLocation: null,
 
   login: (email) => {
     // Simple mock login
@@ -112,6 +121,13 @@ export const useAppStore = create<AppState>((set) => ({
   })),
 
   resetFilters: () => set({ filterOptions: DEFAULT_FILTERS }),
+
+  setLocationPermission: (granted, status = '') => set({
+    locationPermissionGranted: granted,
+    locationPermissionStatus: status,
+  }),
+
+  setUserLocation: (location) => set({ userLocation: location }),
 
   markNotificationAsRead: (id) => set((state) => ({
     notifications: state.notifications.map(n => n.id === id ? { ...n, isRead: true } : n)

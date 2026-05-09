@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Image, StyleSheet, TouchableOpacity, ViewStyle } from 'react-native';
+import { StyleProp, View, Text, Image, StyleSheet, TouchableOpacity, ViewStyle } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { ParkingSpot } from '../../types';
 import { Fonts, Spacing, BorderRadius, Shadows, DarkTheme } from '../../theme';
@@ -9,7 +9,7 @@ import { Badge } from '../common/Badge';
 interface SpotCardProps {
   spot: ParkingSpot;
   onPress: () => void;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }
 
 export const SpotCard: React.FC<SpotCardProps> = ({ spot, onPress, style }) => {
